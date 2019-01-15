@@ -46,6 +46,7 @@ class Republisher
 
   def run()
     docs_info = find_docs_to_republish()
+    binding.pry
     cleanup_published_page(docs_info)
 
     # proceed to cleanup
@@ -135,7 +136,8 @@ class Republisher
   end
 
   def remove_zitting_with_besluiten(zittingUid)
-    query = %(
+    # removes notule too
+    query_str = %(
     PREFIX prov: <http://www.w3.org/ns/prov#>
     PREFIX mandaat: <http://data.vlaanderen.be/ns/mandaat#>
     PREFIX besluit: <http://data.vlaanderen.be/ns/besluit#>
@@ -170,10 +172,11 @@ class Republisher
       }
     }
   )
+    query(query_str)
   end
 
   def remove_zitting_with_agenda_only(zittingUid)
-    query = %(
+    query_str = %(
     PREFIX prov: <http://www.w3.org/ns/prov#>
     PREFIX mandaat: <http://data.vlaanderen.be/ns/mandaat#>
     PREFIX besluit: <http://data.vlaanderen.be/ns/besluit#>
@@ -199,6 +202,7 @@ class Republisher
       }
     }
   )
+    query(query_str)
   end
 
   def find_published_docs(eenheid_g)
@@ -254,14 +258,18 @@ class Republisher
     end
 
     if inverted_mapping[triples[-1].status.value] == "goedgekeurd"
-      p "TODO: fix goedgekeurde"
-      binding.pry
-      return nil
+      if(not all_same_docs(triples))
+        @manual_check << triples[-1] # if not the case a manual check should be performed
+        return nil
+      end
+       p "Last entry (notulen) is valid for #{triples[-1].eenheidNaam.value}"
+      return triples[-1]
     end
 
+    has_goedgekeurd = triples.find{ |t| inverted_mapping[t.status.value] == "goedgekeurd" }
+
     # last document modified is besluitenlijst publiek remove other docs
-    if  inverted_mapping[triples[-1].status.value] == "besluitenlijst publiek"
-      # make sure (potential) duplicates are about the same doc
+    if  inverted_mapping[triples[-1].status.value] == "besluitenlijst publiek" and not has_goedgekeurd
       if(not all_same_docs(triples))
         @manual_check << triples[-1] # if not the case a manual check should be performed
         return nil
@@ -270,10 +278,14 @@ class Republisher
       return triples[-1]
     end
 
+    if inverted_mapping[triples[-1].status.value] == "besluitenlijst publiek" and has_goedgekeurd
+      @manual_check << triples[-1]
+      return nil
+    end
+
     has_besluitenlijst = triples.find{ |t| inverted_mapping[t.status.value] == "besluitenlijst publiek" }
 
-    if  inverted_mapping[triples[-1].status.value] == "agenda publiek" and not has_besluitenlijst
-      # make sure (potential) duplicates are about the same doc
+    if  inverted_mapping[triples[-1].status.value] == "agenda publiek" and not has_besluitenlijst and not has_goedgekeurd
       if(not all_same_docs(triples))
         @manual_check << triples[-1] # if not the case a manual check should be performed
         return nil
@@ -292,10 +304,15 @@ class Republisher
   end
 
   def print_things_to_check_manually
-    p "!!!!!!! Some weird states to check:"
+    p "!!!!!!! Some weird states to check (order or title is not ok):"
     @manual_check.each do |t|
       p "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
     end
+    p "!!!!!!! Published in notule but didn't hit besluiten"
+    @published_status_no_publication.each do |t|
+      p "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
+    end
+
   end
 
   def query(q)

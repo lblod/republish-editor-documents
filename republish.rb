@@ -49,16 +49,26 @@ class Republisher
     @failed_deletes = []
     @failed_publish = []
     @ok_publish = []
+    @done_docs = []
   end
 
   def run()
+    load_done_documents()
     docs_info = find_docs_to_republish()
     docs_info.each do |triple|
+      if(@done_docs.find{ |t| t == triple.docId.value } )
+        p "Done doc #{triple.eenheidNaam.value}, #{triple.eenheidType.value}, skipping"
+        next
+      end
+
       has_delete_errors = cleanup_published_page(triple)
       if has_delete_errors
         next
       end
-      republish(triple)
+      errors = republish(triple)
+      if not errors
+         write_done(triple)
+      end
     end
 
     write_log
@@ -118,7 +128,6 @@ class Republisher
     notulen = endpoint + "/publish/notule/#{triple.docId.value}"
 
     inverted_mapping = DOCSTATES.invert
-
     begin
       if inverted_mapping[triple.status.value] == "goedgekeurd"
         post(agenda)
@@ -137,18 +146,19 @@ class Republisher
         return
       end
 
-      if  inverted_mapping[triple[-1].status.value] == "agenda publiek"
+      if  inverted_mapping[triple.status.value] == "agenda publiek"
         post(agenda)
          p " publishing ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
         @ok_publish << triple
         return
       end
-    rescue
+    rescue  Exception => ex
       p " publishing failed for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
+      p "#{ex.message}"
       @failed_publish << triple
       has_error = true
     end
-
+    has_error
   end
 
   def post(endpoint)
@@ -156,9 +166,9 @@ class Republisher
     method = 'POST'
     url = URI.parse endpoint
     res = client.request method, url
-    if not 200 >= res.status_code and not res.status_code < 300
-      binding.pry
-      raise "Error publishing #{endpoint}"
+    if(not 200 >= res.status_code and not res.status_code < 300)
+      p "Error publishing #{endpoint}, status #{res.status_code}"
+      raise
     end
   end
 
@@ -375,37 +385,57 @@ class Republisher
   def write_log
     file_path = File.join(ENV['OUTPUT_PATH'],"#{DateTime.now.strftime("%Y%m%d%H%M%S")}-publish.log")
     open(file_path, 'w') { |f|
-      f << "!!!!!!! Some weird states to check (order or title is not ok):"
 
+      f << "!!!!!!! Some weird states to check (order or title is not ok): \n"
+      f << "\n"
       @manual_check.each do |t|
-        f << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
+        f << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value} \n"
       end
-
-      f <<  "!!!!!!! Published in notule but didn't hit besluiten"
+       f << "\n"
+      f <<  "!!!!!!! Published in notule but didn't hit besluiten \n"
       @published_status_no_publication.each do |t|
-       f << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
+       f << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value} \n"
       end
-
-      f << "!!!!!!! Failed remove publication for zitting:"
+      f << "\n"
+      f << "!!!!!!! Failed remove publication for zitting: \n"
       @failed_deletes.each do |t|
-       f  << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
+       f  << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value} \n"
       end
-
-      f << "!!!!!!! Failed doc publish for:"
+       f << "\n"
+      f << "!!!!!!! Failed doc publish for: \n"
       @failed_publish.each do |t|
-       f  << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
+       f  << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value} \n"
       end
-
-      f << "List of all failed publish and delete eenheden"
-      f << (@failed_delete + @failed_publish).reduce([]){ |acc, t| acc << "#{t.eenhedId.value}" }
-
-      f << "list of eenheden ok publish"
+       f << "\n"
+      f << "List of all failed publish and delete eenheden \n"
+      f << (@failed_deletes + @failed_publish).reduce([]){ |acc, t| acc << "#{t.eenheidId.value}" }
+      f << "\n"
+      f << "list of eenheden ok publish \n"
       @ok_publish.each do |t|
-       f  << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value}"
+       f  << "- EENHEID: #{t.eenheidNaam.value}, TYPE #{t.eenheidType.value} \n"
       end
 
     }
 
+  end
+
+  def write_done(triple)
+    file_path = File.join(ENV['OUTPUT_PATH'],"republish-done.log")
+    open(file_path, 'a') { |f|
+      f.puts "#{triple.docId.value}\n"
+    }
+  end
+
+  def load_done_documents()
+    file_path = File.join(ENV['OUTPUT_PATH'],"republish-done.log")
+    if not File.file?(file_path)
+      return
+    end
+
+    File.foreach(file_path).with_index do |line, line_num|
+      #valz = line.split(',')
+      @done_docs << line.strip
+    end
   end
 
   def query(q)

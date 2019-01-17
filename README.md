@@ -13,7 +13,7 @@ services:
     image: lblod/republish-editor-documents
     environment:
       ENDPOINT: 'http://virtuoso:8890/sparql'
-      PUBLISHENDPOINT: 'http://publicatie'
+      PUBLISHENDPOINT: 'http://notulenimporter'
       INPUT_PATH: '/data/input'
       OUTPUT_PATH: '/data/output'
     volumes:

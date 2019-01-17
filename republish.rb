@@ -96,7 +96,7 @@ class Republisher
   def cleanup_published_page(triple)
     has_errors = false
     triples = find_zittingen_linked_to_eenheid(triple.eenheid.value)
-    p "Found #{triples.length} docs"
+    p "Found #{triples.length} zitting"
     if(triples.length == 0)
       p "No zitting found for #{triple.eenheidNaam.value}, #{triple.eenheidType.value}"
       @published_status_no_publication << triple
@@ -105,6 +105,7 @@ class Republisher
 
     triples.each do |zitting|
       begin
+       make_sure_doc_status_in_sync_with_found_in_publication_page(triple, zitting)
        cleanup_zitting(zitting)
        p "Cleaned #{zitting.eenheidNaam.value}, #{zitting.eenheidType.value} #{zitting.zitting.value}"
       rescue
@@ -113,6 +114,21 @@ class Republisher
       end
     end
     has_errors
+  end
+
+  def make_sure_doc_status_in_sync_with_found_in_publication_page(doc, zitting)
+    inverted_mapping = DOCSTATES.invert
+    # basically some docs have e.g. agenda publiek, but we see in publication page they should be besluitenlijst public
+    if(inverted_mapping[doc.status.value] == "besluitenlijst publiek" and  has_zitting_notulen(zitting.zittingId.value))
+      p "Found obsolete doc status for #{zitting.eenheidNaam.value}, #{zitting.eenheidType.value} #{zitting.zitting.value}"
+      update_document_status(doc, DOCSTATES["besluitenlijst publiek"], DOCSTATES["goedgekeurd"])
+      doc[:status] = RDF::URI(DOCSTATES["goedgekeurd"])
+    end
+    if(inverted_mapping[doc.status.value] == "agenda publiek" and  has_zitting_besluiten(zitting.zittingId.value))
+       p "Found obsolete doc status for #{zitting.eenheidNaam.value}, #{zitting.eenheidType.value} #{zitting.zitting.value}"
+       update_document_status(doc.doc.value, DOCSTATES["agenda publiek"], DOCSTATES["besluitenlijst publiek"])
+       doc[:status] = RDF::URI(DOCSTATES["besluitenlijst publiek"])
+    end
   end
 
   def cleanup_zitting(triple)
@@ -210,6 +226,89 @@ class Republisher
              }
            }
        ))
+  end
+
+  def has_zitting_besluiten(zittingId)
+    query_str = %(
+      PREFIX prov: <http://www.w3.org/ns/prov#>
+      PREFIX mandaat: <http://data.vlaanderen.be/ns/mandaat#>
+      PREFIX besluit: <http://data.vlaanderen.be/ns/besluit#>
+      PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+      PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+      PREFIX eli: <http://data.europa.eu/eli/ontology#>
+
+      SELECT DISTINCT ?besluit
+      WHERE {
+        GRAPH <http://mu.semte.ch/graphs/public> {
+          ?s mu:uuid "#{zittingId}". #zitting uuid
+          ?s besluit:heeftAgenda ?agenda.
+          ?agenda besluit:heeftAgendapunt ?agendapunt.
+          ?bav dct:subject ?agendapunt.
+          ?bav prov:generated ?besluit.
+          ?besluit eli:has_part ?artikel.
+          ?artikel ?artikelP ?artikelO.
+        }
+      }
+    )
+
+    res = query(query_str)
+    res.length > 0
+  end
+
+  def has_zitting_notulen(zittingId)
+    query_str = %(
+      PREFIX prov: <http://www.w3.org/ns/prov#>
+      PREFIX mandaat: <http://data.vlaanderen.be/ns/mandaat#>
+      PREFIX besluit: <http://data.vlaanderen.be/ns/besluit#>
+      PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+      PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+      PREFIX eli: <http://data.europa.eu/eli/ontology#>
+
+      SELECT DISTINCT ?s
+      WHERE {
+        GRAPH <http://mu.semte.ch/graphs/public> {
+          ?s mu:uuid "#{zittingId}". #zitting uuid
+          ?s <http://data.vlaanderen.be/ns/besluit#heeftNotulen> ?o.
+          ?s besluit:heeftAgenda ?agenda.
+          ?agenda besluit:heeftAgendapunt ?agendapunt.
+          ?bav dct:subject ?agendapunt.
+          ?bav prov:generated ?besluit.
+          ?besluit eli:has_part ?artikel.
+          ?artikel ?artikelP ?artikelO.
+        }
+      }
+    )
+    res = query(query_str)
+    res.length > 0
+  end
+
+  def update_document_status(doc, old_status, new_status)
+    query_str = %(
+      PREFIX ns5:  <http://purl.org/dc/terms/>
+      PREFIX ns2: <http://mu.semte.ch/vocabularies/core/>
+      PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+
+       DELETE {
+         GRAPH ?g {
+           ?s ext:editorDocumentStatus <#{old_status}>.
+         }
+       }
+
+       INSERT {
+         GRAPH ?g {
+           ?s ext:editorDocumentStatus <#{new_status}>.
+         }
+       }
+
+       WHERE {
+         GRAPH ?g {
+           ?s ?p ?o .
+           FILTER( ?s IN (<#{doc}>)) .
+         }
+       };
+    )
+    res = query(query_str)
+    res
   end
 
   def remove_zitting_with_besluiten(zittingUid)

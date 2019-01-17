@@ -149,7 +149,7 @@ class Republisher
         post(agenda)
         post(besluiten)
         post(notulen)
-        p " publishing ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
+        p " publishing notulen ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
         @ok_publish << triple
         return
       end
@@ -157,14 +157,14 @@ class Republisher
       if  inverted_mapping[triple.status.value] == "besluitenlijst publiek"
         post(agenda)
         post(besluiten)
-        p " publishing ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
+        p " publishing besluiten ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
         @ok_publish << triple
         return
       end
 
       if  inverted_mapping[triple.status.value] == "agenda publiek"
         post(agenda)
-         p " publishing ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
+         p " publishing agenda ok for EENHEID: #{triple.eenheidNaam.value}, TYPE #{triple.eenheidType.value}"
         @ok_publish << triple
         return
       end

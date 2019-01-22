@@ -39,7 +39,7 @@ class Republisher
     @endpoint = endpoint
     @publish_endpoint = publish_endpoint
     options = {}
-    options[:read_timeout] = 360
+    options[:read_timeout] = 720
     @client = SPARQL::Client.new(endpoint, options)
     @log = Logger.new(STDOUT)
     @log.level = Logger::INFO
